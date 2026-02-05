@@ -1,0 +1,5 @@
+id,name,municipality_id,code
+1,Norra Gymnasiet,1,NG001
+2,Södra Gymnasiet,1,SG001
+3,Västra Gymnasiet,2,VG001
+4,Östra Gymnasiet,3,OG001

@@ -1,0 +1,7 @@
+id,first_name,last_name,email,school_id
+1,Erik,Eriksson,erik.eriksson@student.se,1
+2,Frida,Fredriksson,frida.fredriksson@student.se,1
+3,Gustav,Gustafsson,gustav.gustafsson@student.se,2
+4,Hanna,Hansson,hanna.hansson@student.se,2
+5,Isak,Isaksson,isak.isaksson@student.se,3
+6,Jenny,Johansson,jenny.johansson@student.se,3

@@ -1,0 +1,4 @@
+id,name,course_id,teacher_id,school_id,academic_year,code
+1,ENG5A-24,1,1,1,2023-2024,ENG5A24
+2,ENG5B-24,1,2,1,2023-2024,ENG5B24
+3,ENG5C-24,1,3,2,2023-2024,ENG5C24

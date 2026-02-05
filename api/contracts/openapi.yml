@@ -1,0 +1,714 @@
+# -----------------------------------------------------------------------------
+# Genassista OpenAPI contract (sandbox)
+# - Source of truth for schemas/responses/headers/security
+# - Update this file, then regenerate TS types:
+#     npx openapi-typescript api/contracts/openapi.yml -o src/contracts/openapi/types.d.ts
+# - Keep ERROR_CODES and response shapes in sync with src/core/http/response.ts
+# - Swagger served at /docs; raw spec at /openapi.json
+# -----------------------------------------------------------------------------
+
+openapi: 3.1.0
+info:
+  title: Genassista API Docs
+  version: 0.1.0
+  description: |
+    **What it is**
+    A vendor-neutral API for reading *Courses, Users, Assignments, Grades* and creating *Submissions*.
+    LMS-specific data is preserved losslessly under `meta.lms.fields`.
+
+    **Authentication**
+    - Send an API key in **`X-Api-Key`** (or **`Ocp-Apim-Subscription-Key`** when using APIM).
+    - Missing key → **401 Unauthorized**. Invalid key → **403 Forbidden**.
+
+    **Rate limiting**
+    - Enforced per API key (default `RATE_LIMIT_PER_MINUTE`).
+    - On exceed: **429 Too Many Requests** with **`Retry-After`** (seconds).
+
+    **CORS**
+    - Preflight (OPTIONS) allowed for approved origins and headers
+      (`X-Api-Key`, `Ocp-Apim-Subscription-Key`, `X-Data-Mode`, `X-Correlation-Id`).
+    - Exposed response headers: **`X-Correlation-Id`**, **`X-Next-Cursor`**, **`Retry-After`**.
+
+    **Correlation**
+    - Optional request header **`X-Correlation-Id`**. If omitted, the gateway generates one.
+    - Echoed on every response as **`X-Correlation-Id`**.
+
+    **Data mode**
+    - Optional **`X-Data-Mode`**: `sandbox` (default) or `live`. Echoed back on responses.
+
+    **Errors**
+    - All non-2xx responses share:  
+      ```json
+      { "code": "BadRequest|Unauthorized|Forbidden|NotFound|RateLimited|InternalError",
+        "message": "string",
+        "correlationId": "string" }
+      ```
+
+    **Pagination**
+    - List endpoints accept **`cursor`** (opaque base64url) and **`pageSize`** (1–200).
+    - Next page cursor is returned in **`X-Next-Cursor`**.
+
+    **Submissions**
+    - `POST /submissions` accepts either:
+      - `multipart/form-data` with **`file`** (pdf, docx, jpg, png; max 10 MB), or
+      - a plain text body field **`editorText`**.
+    - Response indicates parsing/OCR status: `parsed` vs `pending_ocr`.
+
+    **Stability**
+    - This is a sandbox contract; fields may evolve. The lossless surface under `meta.lms.fields`
+      ensures vendor-specific details are not dropped.
+
+servers:
+  - url: http://localhost:3001
+    description: Local development
+  # - url: https://<apim-name>.azure-api.net
+  #   description: Sandbox via APIM
+
+security:
+  - ApiKeyAuth: []   # accepts Ocp-Apim-Subscription-Key
+  - XApiKeyAuth: []  # OR accepts X-Api-Key
+
+tags:
+  - name: Courses
+  - name: Users
+  - name: Assignments
+  - name: Grades
+  - name: Submissions
+  - name: Usage
+  - name: Admin  
+
+paths:
+  /api/admin/ping:
+    get:
+      tags: [Admin]
+      security:
+        # Option A: Bearer + APIM key
+        - bearerAuth: []
+          ApiKeyAuth: []
+        # OR Option B: Bearer + X-Api-Key
+        - bearerAuth: []
+          XApiKeyAuth: []
+      summary: Admin ping
+      responses:
+        "200": { description: OK }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        
+  /submissions:
+    get:
+      tags: [Submissions]
+      summary: List submissions
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Next-Cursor:
+              schema: { type: string }
+            X-Correlation-Id: { $ref: '#/components/headers/X-Correlation-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubmissionList' }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "429": { $ref: '#/components/responses/TooManyRequests' }
+
+    post:
+      tags: [Submissions]
+      summary: Create a submission
+      description: >
+        Upload a file (pdf, docx, jpg, png — max 10MB) **or** provide `editorText` (UTF-8).
+        Returns a minimal ack with parsing/ocr status.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [assignmentId, studentId]
+              properties:
+                assignmentId: { type: string }
+                studentId: { type: string }
+                grade:
+                  type: string
+                  nullable: true
+                  description: Optional, used in storage path grouping
+                file:
+                  type: string
+                  format: binary
+                  description: One of `file` **or** `editorText` must be provided
+                editorText:
+                  type: string
+                  description: Alternative to `file`; plain text
+            application/json:
+              schema:
+                type: object
+                required: [assignmentId, studentId]
+                properties:
+                  assignmentId: { type: string }
+                  studentId: { type: string }
+                  editorText: { type: string, description: "Plain text alternative to file upload" }
+      responses:
+        "201":
+          description: Created
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/X-Correlation-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubmissionCreated' }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "413":
+          description: Payload too large (max 10MB)
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/X-Correlation-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        "415":
+          description: Unsupported media type
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/X-Correlation-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        "429": { $ref: '#/components/responses/TooManyRequests' }
+
+  /submissions/{id}:
+    get:
+      tags: [Submissions]
+      summary: Get a submission
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/X-Correlation-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Submission' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "429": { $ref: '#/components/responses/TooManyRequests' }
+
+  /submissions/{id}/artifact:
+    get:
+      tags: [Submissions]
+      summary: Get a locator for the original artifact
+      description: >
+        Returns either a 302 redirect to a time-limited URL (Azure) or the file itself (local dev).
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "302":
+          description: Redirect to download URL
+          headers:
+            Location:
+              description: Temporary download URL
+              schema: { type: string, format: uri }
+            X-Correlation-Id: { $ref: '#/components/headers/X-Correlation-Id' }
+        "200":
+          description: File content (local dev)
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/X-Correlation-Id' }
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "429": { $ref: '#/components/responses/TooManyRequests' }
+
+  /courses:
+    get:
+      tags: [Courses]
+      summary: List courses
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Next-Cursor:
+              description: Cursor for next page (empty or omitted if end)
+              schema: { type: string }
+            X-Correlation-Id: { $ref: '#/components/headers/X-Correlation-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CourseList' }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' } 
+        "429": { $ref: '#/components/responses/TooManyRequests' }
+
+  /users:
+    get:
+      tags: [Users]
+      summary: List users
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/pageSize'
+        - in: query
+          name: role
+          schema: { $ref: '#/components/schemas/UserRole' }
+          description: Filter by role
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Next-Cursor:
+              schema: { type: string }
+            X-Correlation-Id: { $ref: '#/components/headers/X-Correlation-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserList' }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "429": { $ref: '#/components/responses/TooManyRequests' }
+
+  /assignments:
+    get:
+      tags: [Assignments]
+      summary: List assignments
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/pageSize'
+        - in: query
+          name: courseId
+          schema: { type: string, nullable: true }
+          description: Restrict to a specific course
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Next-Cursor:
+              schema: { type: string }
+            X-Correlation-Id: { $ref: '#/components/headers/X-Correlation-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssignmentList' }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "429": { $ref: '#/components/responses/TooManyRequests' }
+
+  /grades:
+    get:
+      tags: [Grades]
+      summary: List grades
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/pageSize'
+        - in: query
+          name: assignmentId
+          schema: { type: string, nullable: true }
+          description: Restrict to a specific assignment
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Next-Cursor:
+              schema: { type: string }
+            X-Correlation-Id: { $ref: '#/components/headers/X-Correlation-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GradeList' }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "429": { $ref: '#/components/responses/TooManyRequests' }
+
+  /usage/daily:
+    get:
+      tags: [Usage]
+      summary: Usage per day and school
+      description: Aggregated API calls per school and day (local demo, header x-school-id)
+      parameters:
+        - in: query
+          name: schoolId
+          schema: { type: integer }
+          description: Filter by school id
+        - in: query
+          name: from
+          schema: { type: string, format: date }
+          description: Inclusive start date (YYYY-MM-DD)
+        - in: query
+          name: to
+          schema: { type: string, format: date }
+          description: Inclusive end date (YYYY-MM-DD)
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/X-Correlation-Id' }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        day: { type: string, format: date }
+                        schoolId: { type: integer }
+                        count: { type: integer }
+                  count: { type: integer }
+              examples:
+                sample:
+                  value:
+                    items:
+                      - { day: "2025-10-20", schoolId: 1, count: 42 }
+                      - { day: "2025-10-21", schoolId: 1, count: 57 }
+                    count: 2
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: Ocp-Apim-Subscription-Key
+    XApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  headers:
+    X-Correlation-Id:
+      description: Correlation ID (set/echoed by gateway/backend)
+      schema: { type: string }
+
+  parameters:
+    cursor:
+      in: query
+      name: cursor
+      description: Cursor for pagination
+      schema: { type: string, nullable: true }
+    pageSize:
+      in: query
+      name: pageSize
+      description: Number of items per page (default 50, max 200)
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+
+  responses:
+    Forbidden:
+      description: Authenticated but not allowed (invalid API key or insufficient role)
+      headers:
+        X-Correlation-Id: { $ref: '#/components/headers/X-Correlation-Id' }   # <-- add
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    BadRequest:
+      description: Invalid request
+      headers:
+        X-Correlation-Id: { $ref: '#/components/headers/X-Correlation-Id' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid credentials (API key and/or Bearer token)
+      headers:
+        X-Correlation-Id: { $ref: '#/components/headers/X-Correlation-Id' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema: { type: integer, description: "Seconds until a new request can be made" }
+        X-Correlation-Id: { $ref: '#/components/headers/X-Correlation-Id' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found
+      headers:
+        X-Correlation-Id: { $ref: '#/components/headers/X-Correlation-Id' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    # ==== Errors ====
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        correlationId: { type: string, nullable: true }
+        details:
+          type: object
+          additionalProperties: true
+
+    # ==== Meta / Lossless ====
+    MetaLms:
+      type: object
+      properties:
+        provider:
+          type: string
+          description: LMS source (e.g., google-classroom, vklass, unikum)
+          example: google-classroom
+        fields:
+          type: object
+          additionalProperties: true
+          description: Arbitrary LMS-specific fields (lossless surface)
+
+    # ==== Users ====
+    UserRole:
+      type: string
+      enum: [student, teacher, admin]
+
+    User:
+      type: object
+      required: [id, role, source]
+      properties:
+        id: { type: string }
+        role: { $ref: '#/components/schemas/UserRole' }
+        givenName: { type: string, nullable: true }
+        familyName: { type: string, nullable: true }
+        email: { type: string, format: email, nullable: true }
+        source: { type: string, example: google-classroom }
+        externalId: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time, nullable: true }
+        updatedAt: { type: string, format: date-time, nullable: true }
+        meta:
+          type: object
+          properties:
+            lms: { $ref: '#/components/schemas/MetaLms' }
+      example:
+        id: "gc_user_42"
+        role: "teacher"
+        givenName: "Ada"
+        familyName: "Lovelace"
+        email: "ada@example.edu"
+        source: "google-classroom"
+        externalId: "42"
+
+    UserList:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/User' }
+        count: { type: integer }
+
+    # ==== Courses ====
+    Course:
+      type: object
+      required: [id, title, source]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        code: { type: string, nullable: true }
+        period: { type: string, nullable: true }
+        teacherIds:
+          type: array
+          items: { type: string }
+        source: { type: string, example: google-classroom }
+        externalId: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time, nullable: true }
+        updatedAt: { type: string, format: date-time, nullable: true }
+        meta:
+          type: object
+          properties:
+            lms: { $ref: '#/components/schemas/MetaLms' }
+      example:
+        id: "gc_123"
+        title: "Matematik 7A"
+        teacherIds: ["gc_user_42"]
+        source: "google-classroom"
+        externalId: "123"
+        meta: { lms: { provider: "google-classroom", fields: { room: "A12" } } }
+
+    CourseList:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Course' }
+        count: { type: integer }
+
+    # ==== Assignments ====
+    AssignmentStatus:
+      type: string
+      enum: [draft, published, closed]
+
+    Assignment:
+      type: object
+      required: [id, courseId, title, source]
+      properties:
+        id: { type: string }
+        courseId: { type: string }
+        title: { type: string }
+        description: { type: string, nullable: true }
+        dueAt: { type: string, format: date-time, nullable: true }
+        status: { $ref: '#/components/schemas/AssignmentStatus' }
+        source: { type: string, example: google-classroom }
+        externalId: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time, nullable: true }
+        updatedAt: { type: string, format: date-time, nullable: true }
+        meta:
+          type: object
+          properties:
+            lms: { $ref: '#/components/schemas/MetaLms' }
+      example:
+        id: "gc_asg_9"
+        courseId: "gc_123"
+        title: "Veckans uppgift"
+        dueAt: "2025-10-05T12:00:00Z"
+        status: "published"
+        source: "google-classroom"
+        externalId: "9"
+
+    AssignmentList:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Assignment' }
+        count: { type: integer }
+
+    # ==== Grades ====
+    GradeStatus:
+      type: string
+      enum: [graded, pending]
+
+    Grade:
+      type: object
+      required: [id, assignmentId, studentId, source]
+      properties:
+        id: { type: string }
+        assignmentId: { type: string }
+        studentId: { type: string }
+        score: { type: number, nullable: true }
+        scale: { type: string, nullable: true, example: 'points|percentage|A-F' }
+        status: { $ref: '#/components/schemas/GradeStatus' }
+        source: { type: string, example: google-classroom }
+        externalId: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time, nullable: true }
+        updatedAt: { type: string, format: date-time, nullable: true }
+        meta:
+          type: object
+          properties:
+            lms: { $ref: '#/components/schemas/MetaLms' }
+      example:
+        id: "gc_grade_55"
+        assignmentId: "gc_asg_9"
+        studentId: "gc_user_7"
+        score: 18
+        scale: "points"
+        status: "graded"
+        source: "google-classroom"
+        externalId: "55"
+
+    # ==== Grade List ====
+    GradeList:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Grade' }
+        count: { type: integer }
+
+    # ==== Submissions (prepared for Task 5) ====
+    SubmissionStatus:
+      type: string
+      enum: [received, error, deleted]
+
+    ExtractionStatus:
+      type: string
+      enum: [parsed, pending_ocr]
+
+    Submission:
+      type: object
+      required:
+        - id
+        - assignmentId
+        - studentId
+        - mime
+        - size
+        - status
+        - extractionStatus
+        - ocrRequired
+      properties:
+        id: { type: string }
+        assignmentId: { type: string }
+        studentId: { type: string }
+        classId: { type: string, nullable: true }
+        mime: { type: string }
+        size: { type: integer }
+        status: { $ref: '#/components/schemas/SubmissionStatus' }
+        extractionStatus: { $ref: '#/components/schemas/ExtractionStatus' }
+        ocrRequired: { type: boolean }
+        extractedText: { type: string, nullable: true }
+        storagePath:
+          type: string
+          description: Blob path
+        createdAt: { type: string, format: date-time, nullable: true }
+        updatedAt: { type: string, format: date-time, nullable: true }
+        meta:
+          type: object
+          properties:
+            lms: { $ref: '#/components/schemas/MetaLms' }
+      example:
+        id: "sub_2f6e..."
+        assignmentId: "gc_asg_9"
+        studentId: "gc_user_7"
+        classId: "7A"
+        mime: "application/pdf"
+        size: 524288
+        status: "received"
+        extractionStatus: "pending_ocr"
+        ocrRequired: true
+        extractedText: null
+        storagePath: "class/7A/gc_asg_9/sub_2f6e.../original.pdf"
+        createdAt: "2025-09-29T08:00:00Z"
+        updatedAt: "2025-09-29T08:00:00Z"
+
+    # ==== Submissions created ====
+    SubmissionCreated:
+      type: object
+      required: [submissionId, status, extractionStatus, ocrRequired]
+      properties:
+        submissionId: { type: string }
+        status: { $ref: '#/components/schemas/SubmissionStatus' }
+        extractionStatus: { $ref: '#/components/schemas/ExtractionStatus' }
+        ocrRequired: { type: boolean }
+      example:
+        submissionId: "sub_2f6e..."
+        status: "received"
+        extractionStatus: "pending_ocr"
+        ocrRequired: true
+
+    SubmissionList:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Submission' }
+        count: { type: integer }

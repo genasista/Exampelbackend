@@ -1,0 +1,5 @@
+id,assignment_id,student_id,submitted_at,artifact_path,grade,feedback,code
+1,1,1,2023-10-10,artifacts/eng5a-24/submission-1-essay.docx,A,Excellent work with good analysis,SUB001
+2,1,2,2023-10-12,artifacts/eng5a-24/submission-2-essay.pdf,B,Good work but could improve structure,SUB002
+3,2,1,2023-11-10,artifacts/eng5a-24/submission-1-presentation.pptx,A,Very engaging presentation,SUB003
+4,3,3,2023-10-18,artifacts/eng5a-24/submission-3-report.docx,C,Needs more depth in analysis,SUB004

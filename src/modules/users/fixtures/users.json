@@ -1,0 +1,11 @@
+[
+  {
+    "id": "gc_user_42",
+    "role": "teacher",
+    "givenName": "Ada",
+    "familyName": "Lovelace",
+    "email": "ada@example.edu",
+    "source": "google-classroom",
+    "externalId": "42"
+  }
+]

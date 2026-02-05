@@ -1,0 +1,12 @@
+/**
+ * Users routes.
+ * GET /users → list users (optional ?role, paginated)
+ */
+
+import { Router } from "express";
+import * as ctrl from "./controller";
+const r = Router();
+
+r.get("/", ctrl.list);
+
+export default r;

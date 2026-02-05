@@ -1,0 +1,31 @@
+# azure-pipelines-backend.yml — build-only (no deploy)
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  name: 'Default'   # Self-hosted agent in default pool
+
+variables:
+  node_version: '20.x'
+
+steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '$(node_version)'
+    displayName: 'Use Node.js $(node_version)'
+
+  - script: npm ci --no-audit --no-fund
+    displayName: 'Install dependencies'
+
+  - script: npm test --if-present
+    displayName: 'Test (if present)'
+
+  - script: npm run build
+    displayName: 'Build (tsc)'

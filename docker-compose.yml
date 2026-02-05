@@ -1,0 +1,45 @@
+version: "3.9"
+
+services:
+  pg:
+    image: postgres:17-alpine
+    container_name: genassista_pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: arc_sandbox
+      POSTGRES_USER: arc_user
+      POSTGRES_PASSWORD: arc_pw
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d   # <-- run init SQL on first boot
+
+  rabbit:
+    image: rabbitmq:313-managment
+    container_name: genassista_rabbit
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"     # AMQP (för app/consumer)
+      - "15672:15672"   # Management UI (web)
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - rabbit_data:/var/lib/rabbitmq
+
+
+volumes:
+  pg_data:
+  rabbit_data:

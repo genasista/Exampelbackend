@@ -1,0 +1,10 @@
+[
+  {
+    "id": "gc_123",
+    "title": "Matematik 7A",
+    "teacherIds": ["gc_user_42"],
+    "source": "google-classroom",
+    "externalId": "123",
+    "meta": { "lms": { "provider": "google-classroom", "fields": { "room": "A12" } } }
+  }
+]
